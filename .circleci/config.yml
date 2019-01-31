@@ -1,0 +1,50 @@
+version: 2.1
+
+jobs:
+  test:
+    docker:
+    - image: golang:1.11.5
+      environment:
+        GO111MODULE: "on"
+        TEST_RESULTS: /tmp/test-results
+    working_directory: /go/src/github.com/sawadashota/prompt-editor
+    steps:
+    - checkout
+    - restore_cache:
+        name: Restore go modules cache
+        keys:
+        - mod-{{ checksum "go.mod" }}
+    - run: go mod download
+    - run:
+        name: Install CLI tools
+        command: |
+          go install github.com/jstemmer/go-junit-report
+    - save_cache:
+        name: Save go modules cache
+        key: mod-{{ checksum "go.mod" }}
+        paths:
+        - /go/pkg/mod/cache
+    - run: go vet ./...
+    - run:
+        name: Run tests
+        command: |
+          mkdir -p ${TEST_RESULTS}
+          trap "go-junit-report <${TEST_RESULTS}/go-test.out > ${TEST_RESULTS}/go-test-report.xml" EXIT
+          go test -coverprofile ${TEST_RESULTS}/coverage.txt -v ./... | tee ${TEST_RESULTS}/go-test.out
+          go tool cover -html ${TEST_RESULTS}/coverage.txt -o ${TEST_RESULTS}/coverage.html
+    - run:
+        name: Send result codecov
+        working_directory: jsonrpc
+        command: |
+          cp ${TEST_RESULTS}/coverage.txt .
+          bash <(curl -s https://codecov.io/bash) -t ${CODECOV_TOKEN}
+    - store_artifacts:
+        path: /tmp/test-results
+        destination: raw-test-output
+    - store_test_results:
+        path: /tmp/test-results
+workflows:
+  version: 2
+  default:
+    jobs:
+    - test
